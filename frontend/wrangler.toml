@@ -1,0 +1,7 @@
+﻿# 项目名（改成你在 CF 控制台创建的 Workers 项目名）
+name = "cps-homework"
+
+# SPA 路由回退
+[assets]
+directory = "./dist"
+not_found_handling = "single_page_application"
