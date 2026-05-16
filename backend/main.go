@@ -1,177 +1,343 @@
-﻿package main
+package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-	"sync"
-	"time"
+"database/sql"
+"encoding/json"
+"fmt"
+"log"
+"net/http"
+"os"
+"strconv"
+"sync"
+"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
+mqtt "github.com/eclipse/paho.mqtt.golang"
+"github.com/gin-gonic/gin"
+"github.com/gorilla/websocket"
+_ "modernc.org/sqlite"
 )
 
-// DeviceShadow 定义核心设备影子状态模型
+// Full Device Shadow
 type DeviceShadow struct {
-	Mode       string  `json:"mode"`        // "auto" 或 "manual"
-	Power      string  `json:"power"`       // "on" 或 "off"
-	BlindAngle int     `json:"blind_angle"` // 0-180
-	LightLevel int     `json:"light_level"` // 0, 1, 2, 3
-	Lux        float64 `json:"lux"`         // 实时光照度
-	Human      bool    `json:"human"`       // 实时人体检测
-	Timestamp  int64   `json:"timestamp"`
+// Core
+Mode       string  `json:"mode"`
+Power      string  `json:"power"`
+BlindAngle int     `json:"blind_angle"`
+LightLevel int     `json:"light_level"`
+Lux        float64 `json:"lux"`
+Human      bool    `json:"human"`
+Timestamp  int64   `json:"timestamp"`
+// Climate
+Temperature    float64 `json:"temperature"`
+Humidity       float64 `json:"humidity"`
+CO2            int     `json:"co2"`
+OutdoorTemp    float64 `json:"outdoor_temp"`
+OutdoorWeather string  `json:"outdoor_weather"`
+HvacMode       string  `json:"hvac_mode"`
+HvacSetpoint   float64 `json:"hvac_setpoint"`
+HvacFan        string  `json:"hvac_fan"`
+// Security
+DoorClosed          bool `json:"door_closed"`
+WindowLivingClosed  bool `json:"window_living_closed"`
+WindowKitchenClosed bool `json:"window_kitchen_closed"`
+CamerasOnline       int  `json:"cameras_online"`
 }
 
 var (
-	// 全局设备状态与互斥锁
-	currentShadow DeviceShadow
-	shadowMutex   sync.RWMutex
+currentShadow DeviceShadow
+shadowMutex   sync.RWMutex
 
-	// global MQTT client
-	mqttClient mqtt.Client
+mqttClient mqtt.Client
+mqttOpts   *mqtt.ClientOptions
 
-	// WebSocket 升级器（允许所有跨域请求以便开发调试）
-	upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
-	}
+db *sql.DB
 
-	// 记录所有活跃的 WS 连接，用于广播
-	wsClients = make(map[*websocket.Conn]bool)
-	wsMutex   sync.Mutex
+upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+wsClients = make(map[*websocket.Conn]bool)
+wsMutex   sync.Mutex
 )
 
-func main() {
-	// 1. 初始化并连接 MQTT
-	initMQTT()
-
-	// 2. 初始化 Gin 引擎
-	r := gin.Default()
-
-	// 3. 注册 WebSocket 路由
-	r.GET("/ws", wsHandler)
-
-	// 4. 启动 HTTP 服务
-	fmt.Println("Server is running on :8080")
-	if err := r.Run(":8080"); err != nil {
-		log.Fatal("Server failed: ", err)
-	}
+func getEnv(key, fallback string) string {
+if v := os.Getenv(key); v != "" {
+return v
+}
+return fallback
 }
 
-// initMQTT 初始化 MQTT 连接并监听设备上报消息
+func getEnvBool(key string, fallback bool) bool {
+v := os.Getenv(key)
+if v == "" {
+return fallback
+}
+b, err := strconv.ParseBool(v)
+if err != nil {
+return fallback
+}
+return b
+}
+
+func mqttBrokerURL() string {
+host := getEnv("MQTT_HOST", "localhost")
+useTLS := getEnvBool("MQTT_TLS", false)
+port := "1883"
+if useTLS {
+port = getEnv("MQTT_PORT", "8883")
+} else {
+port = getEnv("MQTT_PORT", "1883")
+}
+scheme := "tcp"
+if useTLS {
+scheme = "ssl"
+}
+return fmt.Sprintf("%s://%s:%s", scheme, host, port)
+}
+
+// ─── SQLite ───
+
+func initDB() {
+var err error
+dbDir := getEnv("SQLITE_DIR", "/data")
+dbPath := getEnv("SQLITE_PATH", "/data/lumina.db")
+os.MkdirAll(dbDir, 0755)
+
+db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+if err != nil {
+log.Fatalf("Failed to open SQLite: %v", err)
+}
+db.SetMaxOpenConns(1)
+
+_, err = db.Exec(`CREATE TABLE IF NOT EXISTS device_shadow (
+id INTEGER PRIMARY KEY CHECK (id = 1),
+payload TEXT NOT NULL,
+updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`)
+if err != nil {
+log.Fatalf("SQLite schema init failed: %v", err)
+}
+loadState()
+}
+
+func loadState() {
+var payload string
+err := db.QueryRow("SELECT payload FROM device_shadow WHERE id = 1").Scan(&payload)
+if err == sql.ErrNoRows {
+log.Println("No saved state, using defaults")
+return
+}
+if err != nil {
+log.Printf("WARN: loadState: %v", err)
+return
+}
+var s DeviceShadow
+if json.Unmarshal([]byte(payload), &s) != nil {
+return
+}
+shadowMutex.Lock()
+currentShadow = s
+shadowMutex.Unlock()
+log.Println("Restored state from SQLite")
+}
+
+func saveState() {
+shadowMutex.RLock()
+data, _ := json.Marshal(currentShadow)
+shadowMutex.RUnlock()
+db.Exec("INSERT OR REPLACE INTO device_shadow (id, payload, updated_at) VALUES (1, ?, CURRENT_TIMESTAMP)", string(data))
+}
+
+// ─── MQTT ───
+
 func initMQTT() {
-	opts := mqtt.NewClientOptions().
-		AddBroker("tcp://localhost:1883").
-		SetClientID("golang_backend_server").
-		SetCleanSession(true)
+mqttOpts = mqtt.NewClientOptions().
+AddBroker(mqttBrokerURL()).
+SetClientID("lumina_backend_" + fmt.Sprint(time.Now().UnixNano())).
+SetCleanSession(true).
+SetKeepAlive(30 * time.Second).
+SetPingTimeout(10 * time.Second).
+SetConnectRetry(true).
+SetConnectRetryInterval(5 * time.Second).
+SetMaxReconnectInterval(30 * time.Second).
+SetAutoReconnect(true)
 
-	// 收到 device/up 消息时的回调函数
-	opts.SetDefaultPublishHandler(func(client mqtt.Client, msg mqtt.Message) {
-		log.Printf("Received MQTT message on %s: %s\n", msg.Topic(), msg.Payload())
-		
-		var updatedShadow DeviceShadow
-		if err := json.Unmarshal(msg.Payload(), &updatedShadow); err != nil {
-			log.Println("MQTT payload unmarshal error:", err)
-			return
-		}
-
-		// 更新全局状态
-		shadowMutex.Lock()
-		currentShadow = updatedShadow
-		shadowMutex.Unlock()
-
-		// 向所有前端 Web UI 广播最新状态
-		broadcastToWS(updatedShadow)
-	})
-
-	opts.OnConnect = func(c mqtt.Client) {
-		log.Println("MQTT Connected, Subscribing to device/up...")
-		if token := c.Subscribe("device/up", 0, nil); token.Wait() && token.Error() != nil {
-			log.Println("Subscribe error:", token.Error())
-		}
-	}
-
-	mqttClient = mqtt.NewClient(opts)
-	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-		log.Printf("MQTT Connect error: %v (Waiting for broker...)\n", token.Error())
-	}
+if user := os.Getenv("MQTT_USERNAME"); user != "" {
+mqttOpts.SetUsername(user)
+mqttOpts.SetPassword(os.Getenv("MQTT_PASSWORD"))
 }
 
-// wsHandler 处理前端的 WebSocket 连接
+mqttOpts.SetDefaultPublishHandler(func(client mqtt.Client, msg mqtt.Message) {
+log.Printf("[MQTT <-] %s: %s", msg.Topic(), string(msg.Payload()))
+if msg.Topic() != "device/up" {
+return
+}
+var incoming DeviceShadow
+if json.Unmarshal(msg.Payload(), &incoming) != nil {
+return
+}
+shadowMutex.Lock()
+mergeShadow(&currentShadow, &incoming)
+shadowMutex.Unlock()
+saveState()
+shadowMutex.RLock()
+broadcastToWS(currentShadow)
+shadowMutex.RUnlock()
+})
+
+mqttOpts.OnConnect = func(c mqtt.Client) {
+log.Println("[MQTT] Connected, subscribing device/up")
+c.Subscribe("device/up", 0, nil)
+}
+mqttOpts.OnConnectionLost = func(c mqtt.Client, err error) {
+log.Printf("[MQTT] Lost: %v", err)
+}
+mqttOpts.OnReconnecting = func(c mqtt.Client, opts *mqtt.ClientOptions) {
+log.Println("[MQTT] Reconnecting...")
+}
+
+mqttClient = mqtt.NewClient(mqttOpts)
+if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
+log.Printf("[MQTT] Initial connect failed: %v (auto-retry enabled)", token.Error())
+}
+}
+
+func mergeShadow(current, incoming *DeviceShadow) {
+if incoming.Mode != "" { current.Mode = incoming.Mode }
+if incoming.Power != "" { current.Power = incoming.Power }
+if incoming.BlindAngle != 0 { current.BlindAngle = incoming.BlindAngle }
+if incoming.LightLevel != 0 { current.LightLevel = incoming.LightLevel }
+if incoming.Lux != 0 { current.Lux = incoming.Lux }
+current.Human = incoming.Human
+if incoming.Timestamp != 0 { current.Timestamp = incoming.Timestamp }
+if incoming.Temperature != 0 { current.Temperature = incoming.Temperature }
+if incoming.Humidity != 0 { current.Humidity = incoming.Humidity }
+if incoming.CO2 != 0 { current.CO2 = incoming.CO2 }
+if incoming.OutdoorTemp != 0 { current.OutdoorTemp = incoming.OutdoorTemp }
+if incoming.OutdoorWeather != "" { current.OutdoorWeather = incoming.OutdoorWeather }
+if incoming.HvacMode != "" { current.HvacMode = incoming.HvacMode }
+if incoming.HvacSetpoint != 0 { current.HvacSetpoint = incoming.HvacSetpoint }
+if incoming.HvacFan != "" { current.HvacFan = incoming.HvacFan }
+current.DoorClosed = incoming.DoorClosed
+current.WindowLivingClosed = incoming.WindowLivingClosed
+current.WindowKitchenClosed = incoming.WindowKitchenClosed
+if incoming.CamerasOnline != 0 { current.CamerasOnline = incoming.CamerasOnline }
+}
+
+// ─── WebSocket ───
+
 func wsHandler(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Println("WebSocket Upgrade error:", err)
-		return
-	}
-	defer conn.Close()
-
-	// 注册新连接并下发当前状态
-	wsMutex.Lock()
-	wsClients[conn] = true
-	wsMutex.Unlock()
-
-	shadowMutex.RLock()
-	initData, _ := json.Marshal(currentShadow)
-	shadowMutex.RUnlock()
-	
-	// 连接成功后先推送一次最新状态
-	_ = conn.WriteMessage(websocket.TextMessage, initData)
-
-	// 监听前端发来的指令控制
-	for {
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("WebSocket Read error/Close:", err)
-			wsMutex.Lock()
-			delete(wsClients, conn)
-			wsMutex.Unlock()
-			break
-		}
-
-		log.Printf("Received WS control message: %s\n", msg)
-
-		var cmdShadow DeviceShadow
-		if err := json.Unmarshal(msg, &cmdShadow); err != nil {
-			log.Println("WS payload error:", err)
-			continue
-		}
-
-		// 补齐最新时间戳
-		cmdShadow.Timestamp = time.Now().Unix()
-
-		shadowMutex.Lock()
-		currentShadow = cmdShadow
-		shadowMutex.Unlock()
-
-		// 序列化后通过 MQTT 下发给设备端
-		payload, _ := json.Marshal(cmdShadow)
-		if mqttClient.IsConnected() {
-			mqttClient.Publish("device/down", 0, false, payload)
-		}
-
-		// 也需将最新状态广播给其他所有可能的已连接的前端 Web UI，保持多设备同步
-		broadcastToWS(cmdShadow)
-	}
+conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+if err != nil {
+return
 }
 
-// broadcastToWS 向所有活跃的 WS 连接广播 JSON 状态
-func broadcastToWS(shadow DeviceShadow) {
-	data, err := json.Marshal(shadow)
-	if err != nil {
-		return
-	}
+pongWait := 60 * time.Second
+conn.SetReadDeadline(time.Now().Add(pongWait))
+conn.SetPongHandler(func(string) error {
+conn.SetReadDeadline(time.Now().Add(pongWait))
+return nil
+})
 
-	wsMutex.Lock()
-	defer wsMutex.Unlock()
-	for client := range wsClients {
-		if err := client.WriteMessage(websocket.TextMessage, data); err != nil {
-			log.Println("WS Broadcast error:", err)
-			client.Close()
-			delete(wsClients, client)
-		}
-	}
+pingPeriod := 30 * time.Second
+pingTicker := time.NewTicker(pingPeriod)
+defer pingTicker.Stop()
+done := make(chan struct{})
+go func() {
+for {
+select {
+case <-pingTicker.C:
+if conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)) != nil {
+return
+}
+case <-done:
+return
+}
+}
+}()
+
+defer conn.Close()
+defer close(done)
+
+wsMutex.Lock()
+wsClients[conn] = true
+wsMutex.Unlock()
+
+shadowMutex.RLock()
+initData, _ := json.Marshal(currentShadow)
+shadowMutex.RUnlock()
+conn.WriteMessage(websocket.TextMessage, initData)
+
+log.Printf("[WS] Connected (total=%d)", len(wsClients))
+
+for {
+_, msg, err := conn.ReadMessage()
+if err != nil {
+if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+log.Printf("[WS] Unexpected close: %v", err)
+}
+break
+}
+log.Printf("[WS <-] %s", string(msg))
+
+var cmd DeviceShadow
+if json.Unmarshal(msg, &cmd) != nil {
+continue
+}
+cmd.Timestamp = time.Now().Unix()
+
+shadowMutex.Lock()
+currentShadow = cmd
+shadowMutex.Unlock()
+
+saveState()
+
+if payload, err := json.Marshal(cmd); err == nil && mqttClient.IsConnected() {
+mqttClient.Publish("device/down", 0, false, payload)
+}
+broadcastToWS(cmd)
+}
+
+wsMutex.Lock()
+delete(wsClients, conn)
+wsMutex.Unlock()
+log.Printf("[WS] Disconnected (total=%d)", len(wsClients))
+}
+
+func broadcastToWS(shadow DeviceShadow) {
+data, _ := json.Marshal(shadow)
+wsMutex.Lock()
+defer wsMutex.Unlock()
+for client := range wsClients {
+client.SetWriteDeadline(time.Now().Add(10 * time.Second))
+if client.WriteMessage(websocket.TextMessage, data) != nil {
+client.Close()
+delete(wsClients, client)
+}
+}
+}
+
+// ─── Health ───
+
+func healthHandler(c *gin.Context) {
+mqttOK := mqttClient != nil && mqttClient.IsConnected()
+c.JSON(http.StatusOK, gin.H{
+"status":     "ok",
+"mqtt":       mqttOK,
+"ws_clients": len(wsClients),
+"time":       time.Now().Unix(),
+})
+}
+
+func main() {
+log.SetFlags(log.LstdFlags | log.Lshortfile)
+log.Println("Lumina Home Backend starting...")
+initDB()
+defer db.Close()
+initMQTT()
+gin.SetMode(gin.ReleaseMode)
+r := gin.Default()
+r.GET("/ws", wsHandler)
+r.GET("/health", healthHandler)
+port := getEnv("PORT", "8080")
+log.Printf("Listening on :%s", port)
+log.Fatal(r.Run(":" + port))
 }

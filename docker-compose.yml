@@ -1,0 +1,57 @@
+﻿version: "3.9"
+
+services:
+  # ────── MQTT Broker ──────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      # 明文端口
+      - "${MQTT_HOST_PORT:-1883}:1883"
+      # 加密端口 (可选)
+      - "${MQTT_TLS_PORT:-8883}:8883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/data:/mosquitto/data
+    environment:
+      - MOSQUITTO_USERNAME=${MQTT_USERNAME:-admin}
+      - MOSQUITTO_PASSWORD=${MQTT_PASSWORD:-admin123}
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ────── Lumina Backend ──────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      # MQTT 连接地址 (容器内用服务名 mosquitto)
+      - MQTT_HOST=${MQTT_HOST:-mosquitto}
+      # 是否走 TLS 加密端口 (true/false)
+      - MQTT_TLS=${MQTT_TLS:-false}
+      # MQTT 端口 (明文默认1883, TLS默认8883)
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      # MQTT 账号密码 (留空则不认证)
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      # SQLite 数据存储路径
+      - SQLITE_PATH=/data/lumina.db
+      - SQLITE_DIR=/data
+    volumes:
+      # 将 SQLite 数据持久化到宿主机
+      - ./data:/data
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

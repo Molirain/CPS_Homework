@@ -200,7 +200,7 @@
               <div class="climate-temp-info">
                 <p class="sensor-label">室内温度</p>
                 <div class="sensor-value-row">
-                  <span class="sensor-value">24.5</span>
+                  <span class="sensor-value">{{ tempText }}</span>
                   <span class="sensor-unit">°C</span>
                 </div>
                 <p class="climate-sub">舒适范围 18°C ~ 26°C</p>
@@ -215,7 +215,7 @@
               <div class="climate-temp-info">
                 <p class="sensor-label">相对湿度</p>
                 <div class="sensor-value-row">
-                  <span class="sensor-value">52</span>
+                  <span class="sensor-value">{{ humidityText }}</span>
                   <span class="sensor-unit">%</span>
                 </div>
                 <p class="climate-sub">舒适范围 40% ~ 60%</p>
@@ -230,25 +230,25 @@
               <div class="climate-temp-info">
                 <p class="sensor-label">空气质量 (CO₂)</p>
                 <div class="sensor-value-row">
-                  <span class="sensor-value">680</span>
+                  <span class="sensor-value">{{ co2Text }}</span>
                   <span class="sensor-unit">ppm</span>
                 </div>
-                <p class="climate-sub climate-good">优秀 ( &lt; 800ppm )</p>
+                <p class="climate-sub" :class="co2Class">{{ co2Label }}</p>
               </div>
             </div>
 
-            <!-- Outdoor Weather (mock) -->
+            <!-- Outdoor Weather -->
             <div class="card-sensor card-climate-outdoor">
               <div class="sensor-icon-wrap" style="background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3)">
-                <span class="material-symbols-outlined text-[32px]" style="color:#60a5fa">wb_sunny</span>
+                <span class="material-symbols-outlined text-[32px]" style="color:#60a5fa">{{ outdoorIcon }}</span>
               </div>
               <div class="climate-temp-info">
                 <p class="sensor-label">室外天气</p>
                 <div class="sensor-value-row">
-                  <span class="sensor-value">22</span>
-                  <span class="sensor-unit">°C 晴</span>
+                  <span class="sensor-value">{{ outdoorTempText }}</span>
+                  <span class="sensor-unit">°C {{ deviceShadow.outdoor_weather || '晴' }}</span>
                 </div>
-                <p class="climate-sub">微风 3级 · 紫外线 中等</p>
+                <p class="climate-sub">{{ outdoorDesc }}</p>
               </div>
             </div>
 
@@ -260,9 +260,9 @@
               <div class="climate-temp-info">
                 <p class="sensor-label">空调状态</p>
                 <div class="sensor-value-row">
-                  <span class="sensor-value" style="font-size:28px;line-height:1.2">制冷中</span>
+                  <span class="sensor-value" style="font-size:28px;line-height:1.2">{{ hvacText }}</span>
                 </div>
-                <p class="climate-sub">设定温度 24°C · 低风速</p>
+                <p class="climate-sub">设定温度 {{ hvacSetpointText }}°C · {{ deviceShadow.hvac_fan || '自动' }}风速</p>
               </div>
             </div>
           </div>
@@ -411,43 +411,43 @@
 
             <!-- Door Sensor -->
             <div class="card-sensor">
-              <div class="sensor-icon-wrap" style="background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3)">
-                <span class="material-symbols-outlined text-[32px]" style="color:#34d399">door_front</span>
+              <div class="sensor-icon-wrap" :style="doorStyle">
+                <span class="material-symbols-outlined text-[32px]" :style="doorColor">door_front</span>
               </div>
               <div>
                 <p class="sensor-label">入户门</p>
                 <div class="sensor-value-row">
-                  <span class="presence-state" style="color:#34d399;text-shadow:0 0 12px rgba(52,211,153,0.4)">已关闭</span>
+                  <span class="presence-state" :style="doorStateStyle">{{ deviceShadow.door_closed ? '已关闭' : '已开启' }}</span>
                 </div>
-                <p class="climate-sub">最后开启: 2 小时前</p>
+                <p class="climate-sub">{{ deviceShadow.door_closed ? '状态正常' : '请注意！' }}</p>
               </div>
             </div>
 
             <!-- Window Sensor 1 -->
             <div class="card-sensor">
-              <div class="sensor-icon-wrap" style="background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3)">
-                <span class="material-symbols-outlined text-[32px]" style="color:#34d399">window</span>
+              <div class="sensor-icon-wrap" :style="winLivingStyle">
+                <span class="material-symbols-outlined text-[32px]" :style="winLivingColor">{{ deviceShadow.window_living_closed ? 'window' : 'window_open' }}</span>
               </div>
               <div>
                 <p class="sensor-label">客厅窗户</p>
                 <div class="sensor-value-row">
-                  <span class="presence-state" style="color:#34d399;text-shadow:0 0 12px rgba(52,211,153,0.4)">已关闭</span>
+                  <span class="presence-state" :style="winLivingStateStyle">{{ deviceShadow.window_living_closed ? '已关闭' : '已开启' }}</span>
                 </div>
-                <p class="climate-sub">状态正常</p>
+                <p class="climate-sub">{{ deviceShadow.window_living_closed ? '状态正常' : '请注意！' }}</p>
               </div>
             </div>
 
             <!-- Window Sensor 2 -->
             <div class="card-sensor">
-              <div class="sensor-icon-wrap" style="background:rgba(255,180,171,0.15);border:1px solid rgba(255,180,171,0.3)">
-                <span class="material-symbols-outlined text-[32px]" style="color:#ffb4ab">window_open</span>
+              <div class="sensor-icon-wrap" :style="winKitchenStyle">
+                <span class="material-symbols-outlined text-[32px]" :style="winKitchenColor">{{ deviceShadow.window_kitchen_closed ? 'window' : 'window_open' }}</span>
               </div>
               <div>
                 <p class="sensor-label">厨房窗户</p>
                 <div class="sensor-value-row">
-                  <span class="presence-state" style="color:#ffb4ab;text-shadow:0 0 12px rgba(255,180,171,0.4)">已开启</span>
+                  <span class="presence-state" :style="winKitchenStateStyle">{{ deviceShadow.window_kitchen_closed ? '已关闭' : '已开启' }}</span>
                 </div>
-                <p class="climate-sub">已开启 30 分钟</p>
+                <p class="climate-sub">{{ deviceShadow.window_kitchen_closed ? '状态正常' : '请注意！' }}</p>
               </div>
             </div>
 
@@ -467,15 +467,15 @@
 
             <!-- Camera Status -->
             <div class="card-sensor">
-              <div class="sensor-icon-wrap" style="background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3)">
-                <span class="material-symbols-outlined text-[32px]" style="color:#60a5fa">videocam</span>
+              <div class="sensor-icon-wrap" :style="camStyle">
+                <span class="material-symbols-outlined text-[32px]" :style="camColor">videocam</span>
               </div>
               <div>
                 <p class="sensor-label">摄像头</p>
                 <div class="sensor-value-row">
-                  <span class="presence-state" style="color:#60a5fa;text-shadow:0 0 12px rgba(96,165,250,0.4)">3 路在线</span>
+                  <span class="presence-state" :style="camStateStyle">{{ camText }}</span>
                 </div>
-                <p class="climate-sub">门口 · 客厅 · 阳台</p>
+                <p class="climate-sub">{{ deviceShadow.cameras_online > 0 ? '门口 · 客厅 · 阳台' : '全部离线' }}</p>
               </div>
             </div>
           </div>
@@ -561,6 +561,20 @@ const deviceShadow = reactive({
   lux: 450,
   human: true,
   timestamp: 0,
+  // Climate
+  temperature: 24.5,
+  humidity: 52,
+  co2: 680,
+  outdoor_temp: 22,
+  outdoor_weather: '晴',
+  hvac_mode: 'cool',
+  hvac_setpoint: 24,
+  hvac_fan: '低',
+  // Security
+  door_closed: true,
+  window_living_closed: true,
+  window_kitchen_closed: false,
+  cameras_online: 3,
 })
 
 // ==================== WebSocket ====================
@@ -600,6 +614,83 @@ const connectionText = computed(() => (isConnected.value ? '设备已连接' : '
 const connectionClass = computed(() => (isConnected.value ? 'conn-online' : 'conn-offline'))
 const powerTitle = computed(() => (deviceShadow.power === 'on' ? '系统已开启' : '系统已关闭'))
 const currentTimeText = computed(() => currentClock.value.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
+
+// ==================== Climate Computed ====================
+const tempText = computed(() => (deviceShadow.temperature || 0).toFixed(1))
+const humidityText = computed(() => (deviceShadow.humidity || 0).toFixed(0))
+const co2Text = computed(() => (deviceShadow.co2 || 0).toString())
+const co2Class = computed(() => ({
+  'climate-good': (deviceShadow.co2 || 0) < 800,
+  'climate-sub': true,
+}))
+const co2Label = computed(() => {
+  const v = deviceShadow.co2 || 0
+  if (v < 600) return '优秀 (<600ppm)'
+  if (v < 800) return '良好 (<800ppm)'
+  if (v < 1200) return '一般 (<1200ppm)'
+  return '较差 (≥1200ppm)'
+})
+const outdoorTempText = computed(() => (deviceShadow.outdoor_temp || 0).toFixed(0))
+const outdoorIcon = computed(() => {
+  const w = (deviceShadow.outdoor_weather || '').toLowerCase()
+  if (w.includes('雨')) return 'rainy'
+  if (w.includes('云') || w.includes('阴')) return 'cloud'
+  if (w.includes('雪')) return 'ac_unit'
+  return 'wb_sunny'
+})
+const outdoorDesc = computed(() => {
+  const t = deviceShadow.outdoor_temp || 0
+  if (t > 30) return '炎热 · 注意防暑'
+  if (t > 20) return '舒适 · 适合通风'
+  if (t > 10) return '微凉 · 适当开窗'
+  return '较冷 · 减少开窗'
+})
+const hvacText = computed(() => {
+  const m = (deviceShadow.hvac_mode || 'off').toLowerCase()
+  if (m === 'cool') return '制冷中'
+  if (m === 'heat') return '制热中'
+  if (m === 'fan') return '送风中'
+  if (m === 'auto') return '自动调温'
+  return '已关闭'
+})
+const hvacSetpointText = computed(() => (deviceShadow.hvac_setpoint || 0).toFixed(0))
+
+// ==================== Security Computed Styles ====================
+const doorClosed = computed(() => deviceShadow.door_closed !== false)
+const doorStyle = computed(() => doorClosed.value
+  ? 'background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3)'
+  : 'background:rgba(255,180,171,0.15);border:1px solid rgba(255,180,171,0.3)')
+const doorColor = computed(() => doorClosed.value ? 'color:#34d399' : 'color:#ffb4ab')
+const doorStateStyle = computed(() => doorClosed.value
+  ? 'color:#34d399;text-shadow:0 0 12px rgba(52,211,153,0.4)'
+  : 'color:#ffb4ab;text-shadow:0 0 12px rgba(255,180,171,0.4)')
+
+const winLivingClosed = computed(() => deviceShadow.window_living_closed !== false)
+const winLivingStyle = computed(() => winLivingClosed.value
+  ? 'background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3)'
+  : 'background:rgba(255,180,171,0.15);border:1px solid rgba(255,180,171,0.3)')
+const winLivingColor = computed(() => winLivingClosed.value ? 'color:#34d399' : 'color:#ffb4ab')
+const winLivingStateStyle = computed(() => winLivingClosed.value
+  ? 'color:#34d399;text-shadow:0 0 12px rgba(52,211,153,0.4)'
+  : 'color:#ffb4ab;text-shadow:0 0 12px rgba(255,180,171,0.4)')
+
+const winKitchenClosed = computed(() => deviceShadow.window_kitchen_closed !== false)
+const winKitchenStyle = computed(() => winKitchenClosed.value
+  ? 'background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3)'
+  : 'background:rgba(255,180,171,0.15);border:1px solid rgba(255,180,171,0.3)')
+const winKitchenColor = computed(() => winKitchenClosed.value ? 'color:#34d399' : 'color:#ffb4ab')
+const winKitchenStateStyle = computed(() => winKitchenClosed.value
+  ? 'color:#34d399;text-shadow:0 0 12px rgba(52,211,153,0.4)'
+  : 'color:#ffb4ab;text-shadow:0 0 12px rgba(255,180,171,0.4)')
+
+const camText = computed(() => `${deviceShadow.cameras_online || 0} 路在线`)
+const camStyle = computed(() => (deviceShadow.cameras_online || 0) > 0
+  ? 'background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3)'
+  : 'background:rgba(107,114,128,0.15);border:1px solid rgba(107,114,128,0.3)')
+const camColor = computed(() => (deviceShadow.cameras_online || 0) > 0 ? 'color:#60a5fa' : 'color:#6b7280')
+const camStateStyle = computed(() => (deviceShadow.cameras_online || 0) > 0
+  ? 'color:#60a5fa;text-shadow:0 0 12px rgba(96,165,250,0.4)'
+  : 'color:#6b7280')
 
 // ==================== WebSocket ====================
 function connectWS() {
