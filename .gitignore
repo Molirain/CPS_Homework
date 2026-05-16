@@ -1,0 +1,25 @@
+﻿# Dependencies
+node_modules/
+frontend/node_modules/
+backend/bin/
+
+# Builds
+dist/
+frontend/dist/
+backend/dist/
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Environment and editor files
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
