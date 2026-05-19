@@ -3,8 +3,7 @@
   backend:
     image: ghcr.io/molirain/cps_homework:latest
     restart: unless-stopped
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
+    network_mode: host
     environment:
       - PORT=8080
       # MQTT 连接地址 (你的 EMQX 服务器)
@@ -22,8 +21,6 @@
     volumes:
       # 将 SQLite 数据持久化到宿主机
       - ./data:/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
       interval: 30s
