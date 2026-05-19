@@ -22,6 +22,8 @@
     volumes:
       # 将 SQLite 数据持久化到宿主机
       - ./data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
       interval: 30s
