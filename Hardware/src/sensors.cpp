@@ -34,6 +34,7 @@ void Moli_Sensors::process()
         } else {
             sysState.power = "on";
         }
+        saveState(); // 持久化
     }
     
     // 按键 B 切换自动 / 手动模式
@@ -43,6 +44,7 @@ void Moli_Sensors::process()
         } else {
             sysState.mode = "auto";
         }
+        saveState(); // 持久化
     }
     
     lastBtnA = btnA;

@@ -20,6 +20,9 @@ extern SystemState sysState;
 extern QueueHandle_t stateQueue;
 extern const char* root_ca;
 
+// NVS 状态持久化（声明于 main.cpp 实现）
+void saveState();
+
 // Molirain 专属网络通信类
 class Moli_MQTT {
 private:

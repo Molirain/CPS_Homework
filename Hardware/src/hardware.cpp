@@ -50,6 +50,7 @@ void Moli_Hardware::process()
         // 更新系统全局状态对象 (给 Network 使用做 Upstream 凭据)
         sysState.blind_angle = localState.blind_angle;
         sysState.light_level = localState.light_level;
+        saveState(); // 自动算法每轮调节后持久化
     } 
     
     // 总电源关闭

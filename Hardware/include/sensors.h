@@ -12,5 +12,4 @@ public:
     void process();
 };
 
-// 暴露给 FreeRTOS 的任务指针
 void task_sensors(void* p);

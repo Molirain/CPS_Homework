@@ -195,9 +195,11 @@ log.Println("[MQTT] Reconnecting...")
 }
 
 mqttClient = mqtt.NewClient(mqttOpts)
+go func() {
 if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
 log.Printf("[MQTT] Initial connect failed: %v (auto-retry enabled)", token.Error())
 }
+}()
 }
 
 func mergeShadow(current, incoming *DeviceShadow) {
