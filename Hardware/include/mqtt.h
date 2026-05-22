@@ -18,6 +18,8 @@ struct SystemState {
 
 extern SystemState sysState;
 extern QueueHandle_t stateQueue;
+extern SemaphoreHandle_t stateMutex;  // 保护 sysState 的互斥锁
+extern TickType_t g_lastReportTime;   // 1Hz 上报计时器，onMessage 收到命令后重置
 extern const char* root_ca;
 
 // NVS 状态持久化（声明于 main.cpp 实现）

@@ -48,15 +48,21 @@ void Moli_Hardware::process()
             }
         }
         // 更新系统全局状态对象 (给 Network 使用做 Upstream 凭据)
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
         sysState.blind_angle = localState.blind_angle;
         sysState.light_level = localState.light_level;
-        saveState(); // 自动算法每轮调节后持久化
+        saveState(); // 自动算法每轮调节后持久化（持锁内调用）
+        xSemaphoreGive(stateMutex);
     } 
     
-    // 总电源关闭
+    // 总电源关闭：驱动硬件 + 同步更新全局状态，避免上报不一致
     if (localState.power == "off") {
         localState.light_level = 0;
         localState.blind_angle = 0;
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        sysState.light_level = 0;
+        sysState.blind_angle = 0;
+        xSemaphoreGive(stateMutex);
     }
 
     // 驱动执行器舵机

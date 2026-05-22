@@ -58,6 +58,7 @@ void Moli_MQTT::begin()
 
     // 配置根证书
     espClient.setCACert(root_ca);
+    client.setBufferSize(1024);  // 网页下发 JSON 较大(~350B)，默认 256 不足以接收
     client.setServer(MQTT_SERVER, MQTT_PORT);
 
     // 设置回调函数
@@ -76,29 +77,51 @@ void Moli_MQTT::onMessage(char* topic, byte* payload, unsigned int length)
 
     // 解析云端下发的数据
     if (String(topic) == "device/down") {
-        StaticJsonDocument<256> doc;
+        // 网页下发字段较多（20+），512 不够，用 1024
+        StaticJsonDocument<1024> doc;
         DeserializationError error = deserializeJson(doc, msg);
         if (error) {
-            Serial.print("deserializeJson() failed: ");
-            Serial.println(error.c_str());
+            Serial.printf("deserializeJson() failed: %s  (msg len=%d)\n",
+                          error.c_str(), msg.length());
             return;
         }
 
+        // 加锁保护 sysState（跨核 String 操作非线程安全）
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        bool changed = false;
         if (doc.containsKey("mode")) {
             sysState.mode = doc["mode"].as<String>();
+            changed = true;
         }
         if (doc.containsKey("power")) {
             sysState.power = doc["power"].as<String>();
+            changed = true;
         }
         if (doc.containsKey("blind_angle")) {
             sysState.blind_angle = doc["blind_angle"].as<int>();
+            changed = true;
         }
         if (doc.containsKey("light_level")) {
             sysState.light_level = doc["light_level"].as<int>();
+            changed = true;
         }
         
         // 全局队列覆盖上报
         xQueueOverwrite(stateQueue, &sysState);
+
+        // 持久化：网页端命令也写入 NVS，防止重启回退
+        if (changed) {
+            saveState();
+        }
+        xSemaphoreGive(stateMutex);
+
+        // 立即上报新状态 + 重置 1Hz 定时器，防止定时器在命令处理前发出旧数据导致前端闪回
+        publishState();
+        g_lastReportTime = xTaskGetTickCount();
+
+        Serial.printf("[MQTT] 命令已生效 mode=%s power=%s blind=%d light=%d\n",
+                      sysState.mode.c_str(), sysState.power.c_str(),
+                      sysState.blind_angle, sysState.light_level);
     }
 }
 
@@ -141,13 +164,16 @@ void Moli_MQTT::publishState()
         return;
     }
     
-    StaticJsonDocument<256> doc;
+    // 加锁读取 sysState，防止跨核 String 读取时被并发写入破坏
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    StaticJsonDocument<1024> doc;
     doc["mode"] = sysState.mode;
     doc["power"] = sysState.power;
     doc["blind_angle"] = sysState.blind_angle;
     doc["light_level"] = sysState.light_level;
     doc["lux"] = sysState.lux;
     doc["human"] = sysState.human;
+    xSemaphoreGive(stateMutex);
     
     char buffer[256];
     serializeJson(doc, buffer);

@@ -27,16 +27,16 @@ void Moli_Network::init()
 
 void Moli_Network::process()
 {
-    TickType_t lastReportTime = xTaskGetTickCount();
+    g_lastReportTime = xTaskGetTickCount();
     
     for (;;) {
         // 维持 MQTT 生命周期及重连
         myMqtt.loop();
         
-        // 1 Hz 定时上传频率推送
-        if (xTaskGetTickCount() - lastReportTime >= pdMS_TO_TICKS(1000)) {
+        // 1 Hz 定时上传频率推送（g_lastReportTime 会被 onMessage 重置以抑制旧数据竞争）
+        if (xTaskGetTickCount() - g_lastReportTime >= pdMS_TO_TICKS(1000)) {
             myMqtt.publishState();
-            lastReportTime = xTaskGetTickCount();
+            g_lastReportTime = xTaskGetTickCount();
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));

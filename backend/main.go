@@ -205,9 +205,10 @@ log.Printf("[MQTT] Initial connect failed: %v (auto-retry enabled)", token.Error
 func mergeShadow(current, incoming *DeviceShadow) {
 if incoming.Mode != "" { current.Mode = incoming.Mode }
 if incoming.Power != "" { current.Power = incoming.Power }
-if incoming.BlindAngle != 0 { current.BlindAngle = incoming.BlindAngle }
-if incoming.LightLevel != 0 { current.LightLevel = incoming.LightLevel }
-if incoming.Lux != 0 { current.Lux = incoming.Lux }
+// 0 是合法值(关机/夜间)，不能跳过
+current.BlindAngle = incoming.BlindAngle
+current.LightLevel = incoming.LightLevel
+current.Lux = incoming.Lux
 current.Human = incoming.Human
 if incoming.Timestamp != 0 { current.Timestamp = incoming.Timestamp }
 if incoming.Temperature != 0 { current.Temperature = incoming.Temperature }
@@ -287,7 +288,7 @@ continue
 cmd.Timestamp = time.Now().Unix()
 
 shadowMutex.Lock()
-currentShadow = cmd
+mergeShadow(&currentShadow, &cmd)
 shadowMutex.Unlock()
 
 saveState()
@@ -295,7 +296,9 @@ saveState()
 if payload, err := json.Marshal(cmd); err == nil && mqttClient.IsConnected() {
 mqttClient.Publish("device/down", 0, false, payload)
 }
-broadcastToWS(cmd)
+shadowMutex.RLock()
+broadcastToWS(currentShadow)
+shadowMutex.RUnlock()
 }
 
 wsMutex.Lock()

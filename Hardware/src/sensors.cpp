@@ -20,6 +20,9 @@ void Moli_Sensors::process()
 {
     int raw_lux = analogRead(PIN_LIGHT_ADC);
     
+    // 加锁保护 sysState（跨核 String 操作非线程安全）
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    
     // 使用 ADC 值按比例模拟 Lux 光照度
     sysState.lux = raw_lux * (1000.0 / 4095.0); 
     sysState.human = (digitalRead(PIN_HUMAN) == HIGH);
@@ -52,6 +55,7 @@ void Moli_Sensors::process()
 
     // 将最新的输入端结果同步到系统核心队列中
     xQueueOverwrite(stateQueue, &sysState);
+    xSemaphoreGive(stateMutex);
 }
 
 void task_sensors(void* p)

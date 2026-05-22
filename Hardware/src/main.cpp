@@ -8,6 +8,8 @@
 // 实例化全局数据与队列
 SystemState sysState;
 QueueHandle_t stateQueue;
+SemaphoreHandle_t stateMutex;  // 保护 sysState 跨核访问
+TickType_t g_lastReportTime;   // 1Hz 上报计时器
 
 // 从 NVS 加载上次断电前的状态，首次上电返回 false
 static bool loadState()
@@ -31,6 +33,7 @@ static bool loadState()
 }
 
 // 将当前状态写入 NVS 持久化
+// 注意：调用者必须已持有 stateMutex
 void saveState()
 {
     Preferences prefs;
@@ -61,6 +64,9 @@ void setup()
     // 全局唯一状态队列，仅维持 1 个长度即可避免延迟堆积
     stateQueue = xQueueCreate(1, sizeof(SystemState));
     xQueueOverwrite(stateQueue, &sysState);
+
+    // 创建互斥锁，保护 sysState 跨核并发访问（String 非线程安全）
+    stateMutex = xSemaphoreCreateMutex();
 
     // 各协程按实时性要求分级优先级
     // 硬件执行器 3 > 网络通信 2 > 传感器采集 1
