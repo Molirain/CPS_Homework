@@ -6,6 +6,7 @@ class Moli_Hardware {
 private:
     Servo blindServo;
     bool isDaytime();
+    int current_blind_angle = -1; // 增加记录当前舵机角度
 
 public:
     void init();

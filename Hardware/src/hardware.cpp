@@ -19,9 +19,12 @@ bool Moli_Hardware::isDaytime()
 
 void Moli_Hardware::init()
 {
-    blindServo.attach(PIN_SERVO);
-    ledcSetup(0, 5000, 8);
-    ledcAttachPin(PIN_LED, 0);
+    // 初始化舵机，添加引脚和180度舵机的最小(500us)、最大(2500us)脉宽参数
+    blindServo.attach(PIN_SERVO, 500, 2500);
+    
+    // 改用 通道4 给 LED 使用，避开 ESP32Servo 底层默认占用的通道(0~3)
+    ledcSetup(4, 5000, 8);
+    ledcAttachPin(PIN_LED, 4);
 }
 
 void Moli_Hardware::process()
@@ -49,9 +52,19 @@ void Moli_Hardware::process()
         }
         // 更新系统全局状态对象 (给 Network 使用做 Upstream 凭据)
         xSemaphoreTake(stateMutex, portMAX_DELAY);
-        sysState.blind_angle = localState.blind_angle;
-        sysState.light_level = localState.light_level;
-        saveState(); // 自动算法每轮调节后持久化（持锁内调用）
+        bool stateChanged = false;
+        if (sysState.blind_angle != localState.blind_angle || 
+            sysState.light_level != localState.light_level) {
+            sysState.blind_angle = localState.blind_angle;
+            sysState.light_level = localState.light_level;
+            stateChanged = true;
+        }
+        
+        if (stateChanged) {
+            saveState(); // 仅当真实发生状态改变时才写 Flash，防止每20ms疯狂擦写闪存导致死机
+            g_lastReportTime = xTaskGetTickCount() - pdMS_TO_TICKS(1000); // 强制极速上报新的外设动作
+            Serial.printf("[Hardware] 自动模式触发控制，更新状态并立即上报\n");
+        }
         xSemaphoreGive(stateMutex);
     } 
     
@@ -65,8 +78,34 @@ void Moli_Hardware::process()
         xSemaphoreGive(stateMutex);
     }
 
-    // 驱动执行器舵机
-    blindServo.write(localState.blind_angle);
+    // 驱动执行器舵机 (缓动降速平滑处理)
+    if (current_blind_angle == -1) {
+        current_blind_angle = localState.blind_angle;
+    }
+    
+    // 如果舵机被 detach 断开了，在需要运动时重新 attach
+    if (current_blind_angle != localState.blind_angle && !blindServo.attached()) {
+        blindServo.attach(PIN_SERVO, 500, 2500);
+    }
+
+    if (abs(current_blind_angle - localState.blind_angle) > 2) {
+        if (current_blind_angle < localState.blind_angle) current_blind_angle += 3;
+        else current_blind_angle -= 3;
+    } else {
+        current_blind_angle = localState.blind_angle;
+    }
+
+    // 仅在角度发生变化时下发 PWM，防止连续调用引发定时器微抖动
+    static int last_written_angle = -1;
+    if (last_written_angle != current_blind_angle) {
+        blindServo.write(current_blind_angle);
+        last_written_angle = current_blind_angle;
+    } else {
+        // 到达终点后，切断 PWM 使其完全放松，消除100%的抽搐
+        if (blindServo.attached()) {
+            blindServo.detach();
+        }
+    }
     
     // 驱动调光呼吸灯占空比 0~3 档映射到 0~255
     int duty = 0;
@@ -77,7 +116,7 @@ void Moli_Hardware::process()
     } else if (localState.light_level == 3) {
         duty = 255;
     }
-    ledcWrite(0, duty);
+    ledcWrite(4, duty);
 }
 
 void task_hardware(void* p)
@@ -87,6 +126,6 @@ void task_hardware(void* p)
 
     for (;;) {
         hardware.process();
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(20)); // 修改循环刷新率到 20ms 以支持平滑转动
     }
 }
