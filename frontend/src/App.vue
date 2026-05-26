@@ -623,6 +623,16 @@ function handleBlindChange() {
   }, 1000)
 }
 
+// ==================== Lighting & Buttons Anti-Echo ====================
+const isSettingLight = ref(false)
+let lightEchoTimeout = null
+
+const isSettingPower = ref(false)
+let powerEchoTimeout = null
+
+const isSettingMode = ref(false)
+let modeEchoTimeout = null
+
 // ==================== Computed ====================
 const isAuto = computed(() => deviceShadow.mode === 'auto')
 const luxText = computed(() => Number(deviceShadow.lux || 0).toFixed(0))
@@ -730,6 +740,15 @@ function connectWS() {
       if (isDraggingBlind.value && payload.blind_angle !== undefined) {
         delete payload.blind_angle
       }
+      if (isSettingLight.value && payload.light_level !== undefined) {
+        delete payload.light_level
+      }
+      if (isSettingPower.value && payload.power !== undefined) {
+        delete payload.power
+      }
+      if (isSettingMode.value && payload.mode !== undefined) {
+        delete payload.mode
+      }
       Object.assign(deviceShadow, payload)
     } catch (error) {
       console.error('WS 数据解析失败', error)
@@ -780,18 +799,36 @@ function setMode(mode) {
   if (deviceShadow.mode === mode) return
   deviceShadow.mode = mode
   syncState()
+  
+  isSettingMode.value = true
+  if (modeEchoTimeout) clearTimeout(modeEchoTimeout)
+  modeEchoTimeout = setTimeout(() => {
+    isSettingMode.value = false
+  }, 1000)
 }
 
 function setLightLevel(level) {
   if (isAuto.value) return
   deviceShadow.light_level = level
   syncState()
+  
+  isSettingLight.value = true
+  if (lightEchoTimeout) clearTimeout(lightEchoTimeout)
+  lightEchoTimeout = setTimeout(() => {
+    isSettingLight.value = false
+  }, 1000)
 }
 
 function togglePower() {
   if (isAuto.value) return
   deviceShadow.power = deviceShadow.power === 'on' ? 'off' : 'on'
   syncState()
+  
+  isSettingPower.value = true
+  if (powerEchoTimeout) clearTimeout(powerEchoTimeout)
+  powerEchoTimeout = setTimeout(() => {
+    isSettingPower.value = false
+  }, 1000)
 }
 
 function lightButtonClass(level) {
