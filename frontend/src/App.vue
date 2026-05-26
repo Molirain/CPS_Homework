@@ -162,7 +162,7 @@
                 <span class="slider-value">{{ deviceShadow.blind_angle }}°</span>
               </div>
               <div class="slider-track-wrap">
-                <input v-model.number="deviceShadow.blind_angle" :disabled="isAuto" class="slider-input" max="180" min="0" type="range" @change="syncState" />
+                <input v-model.number="deviceShadow.blind_angle" :disabled="isAuto" class="slider-input" max="180" min="0" type="range" @input="handleBlindInput" @change="handleBlindChange" />
               </div>
               <div class="slider-marks"><span>0°</span><span>90°</span><span>180°</span></div>
             </div>
@@ -606,6 +606,23 @@ const lightOptions = [
   { value: 3, label: '高亮' },
 ]
 
+// ==================== Blind Slider Anti-Echo ====================
+const isDraggingBlind = ref(false)
+let blindEchoTimeout = null
+
+function handleBlindInput() {
+  isDraggingBlind.value = true
+  if (blindEchoTimeout) clearTimeout(blindEchoTimeout)
+}
+
+function handleBlindChange() {
+  syncState()
+  if (blindEchoTimeout) clearTimeout(blindEchoTimeout)
+  blindEchoTimeout = setTimeout(() => {
+    isDraggingBlind.value = false
+  }, 1000)
+}
+
 // ==================== Computed ====================
 const isAuto = computed(() => deviceShadow.mode === 'auto')
 const luxText = computed(() => Number(deviceShadow.lux || 0).toFixed(0))
@@ -710,6 +727,9 @@ function connectWS() {
   ws.onmessage = (event) => {
     try {
       const payload = JSON.parse(event.data)
+      if (isDraggingBlind.value && payload.blind_angle !== undefined) {
+        delete payload.blind_angle
+      }
       Object.assign(deviceShadow, payload)
     } catch (error) {
       console.error('WS 数据解析失败', error)
