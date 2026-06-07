@@ -5,7 +5,6 @@ class Moli_Sensors {
 private:
     bool lastBtnA;
     bool lastBtnB;
-    bool lastHumanLvl;
     bool lastReportedHuman;
 
 public:

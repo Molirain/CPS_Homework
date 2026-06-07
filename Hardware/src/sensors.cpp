@@ -7,15 +7,12 @@ Moli_Sensors::Moli_Sensors()
     // 改为了下拉模式，所以初始未按下时的状态应该是 LOW
     lastBtnA = LOW;
     lastBtnB = LOW;
-    lastHumanLvl = LOW;
     lastReportedHuman = LOW;
 }
 
 void Moli_Sensors::init()
 {
     pinMode(PIN_LIGHT_ADC, INPUT);
-    // 给模拟红外人体的引脚加上内部下拉电阻，防止引脚悬空收集环境噪声引发无规律乱跳
-    pinMode(PIN_HUMAN, INPUT_PULLDOWN); 
     pinMode(PIN_BTN_A, INPUT_PULLDOWN);
     pinMode(PIN_BTN_B, INPUT_PULLDOWN);
 }
@@ -29,12 +26,6 @@ void Moli_Sensors::process()
     
     // 使用 ADC 值按比例模拟 Lux 光照度
     sysState.lux = raw_lux * (1000.0 / 4095.0); 
-
-    bool currentHuman = digitalRead(PIN_HUMAN);
-    // 用按钮模拟人体模块（按一次开，再按一次关）
-    if (currentHuman == HIGH && lastHumanLvl == LOW) {
-        sysState.human = !sysState.human; // 翻转有人/无人状态
-    }
 
     bool btnA = digitalRead(PIN_BTN_A);
     bool btnB = digitalRead(PIN_BTN_B);
@@ -74,7 +65,6 @@ void Moli_Sensors::process()
     
     lastBtnA = btnA;
     lastBtnB = btnB;
-    lastHumanLvl = currentHuman; // 更新物理按压历史
 
     // 将最新的输入端结果同步到系统核心队列中
     xQueueOverwrite(stateQueue, &sysState);

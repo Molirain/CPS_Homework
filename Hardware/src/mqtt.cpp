@@ -122,6 +122,15 @@ void Moli_MQTT::onMessage(char* topic, byte* payload, unsigned int length)
         Serial.printf("[MQTT] 命令已生效 mode=%s power=%s blind=%d light=%d\n",
                       sysState.mode.c_str(), sysState.power.c_str(),
                       sysState.blind_angle, sysState.light_level);
+    } else if (String(topic) == "device/human") {
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, msg);
+        if (!error && doc.containsKey("human")) {
+            xSemaphoreTake(stateMutex, portMAX_DELAY);
+            sysState.human = doc["human"].as<bool>();
+            xSemaphoreGive(stateMutex);
+            // 这里可以不做上报，sensors.cpp 会检测 sysState.human 变化自动触发上报
+        }
     }
 }
 
@@ -137,6 +146,7 @@ void Moli_MQTT::connect()
         if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASSWORD)) {
             Serial.println("Success!");
             client.subscribe("device/down");
+            client.subscribe("device/human");
         } else {
             Serial.printf("Failed, rc=%d. Trying again in 5 seconds...\n", client.state());
             delay(5000);
